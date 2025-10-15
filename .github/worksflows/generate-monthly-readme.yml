@@ -1,4 +1,4 @@
-name: Generate Monthly Diary README
+name: Generate Monthly Diary README + WordCloud
 
 on:
   push:
@@ -20,37 +20,70 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Generate monthly README
+      - name: Install dependencies
+        run: |
+          pip install wordcloud matplotlib japanize-matplotlib
+
+      - name: Generate monthly README and wordcloud
         run: |
           import os, glob, re
           from datetime import datetime
+          from wordcloud import WordCloud
+          import matplotlib.pyplot as plt
 
           diary_dir = "diary"
+
           for year_dir in glob.glob(f"{diary_dir}/*/"):
               for month_dir in glob.glob(f"{year_dir}*/"):
                   files = sorted(glob.glob(f"{month_dir}*.md"))
+                  texts = []
                   entries = []
+
                   for f in files:
-                      if f.endswith("README.md"): continue
+                      if f.endswith("README.md") or f.endswith("wordcloud.png"):
+                          continue
                       with open(f, encoding="utf-8") as fp:
                           content = fp.read()
+                      texts.append(content)
                       date_match = re.search(r"(\d{4}-\d{2}-\d{2})", f)
                       date = date_match.group(1) if date_match else f
-                      # 1行目をタイトル扱い
                       first_line = content.strip().split("\n")[0]
                       entries.append((date, first_line))
 
-                  if not entries:
+                  if not texts:
                       continue
 
-                  # READMEを生成
+                  full_text = "\n".join(texts)
+                  wc_path = os.path.join(month_dir, "wordcloud.png")
+
+                  # WordCloud生成
+                  wc = WordCloud(
+                      width=800,
+                      height=600,
+                      background_color="white",
+                      font_path="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                      collocations=False
+                  ).generate(full_text)
+
+                  plt.figure(figsize=(8, 6))
+                  plt.imshow(wc, interpolation="bilinear")
+                  plt.axis("off")
+                  plt.savefig(wc_path, bbox_inches="tight")
+                  plt.close()
+
+                  # README生成
                   readme_path = os.path.join(month_dir, "README.md")
+                  year = os.path.basename(os.path.dirname(month_dir.rstrip('/')))
+                  month = os.path.basename(month_dir.rstrip('/'))
+
                   with open(readme_path, "w", encoding="utf-8") as f:
-                      year = os.path.basename(os.path.dirname(month_dir.rstrip('/')))
-                      month = os.path.basename(month_dir.rstrip('/'))
                       f.write(f"# 📅 {year}年{month}月の日記まとめ\n\n")
                       f.write(f"更新日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                      f.write("## 目次\n\n")
+
+                      f.write("## 🌥️ WordCloud\n\n")
+                      f.write("![WordCloud](./wordcloud.png)\n\n")
+
+                      f.write("## 📖 目次\n\n")
                       for date, title in entries:
                           filename = os.path.basename(f"{date}.md")
                           f.write(f"- [{date} - {title}]({filename})\n")
@@ -58,10 +91,10 @@ jobs:
                       f.write("\n---\n")
                       f.write(f"合計 {len(entries)} 件の日記が記録されています。\n")
 
-      - name: Commit and push README
+      - name: Commit and push results
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add diary/
-          git commit -m "Update monthly README automatically" || echo "No changes to commit"
+          git commit -m "Auto-generate monthly README and WordCloud" || echo "No changes to commit"
           git push
