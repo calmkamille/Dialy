@@ -1,58 +1,65 @@
 import os
 import datetime
-from github import Github
 import discord
-from dotenv import load_dotenv
+from github import Github
 
-# --- 環境変数読み込み ---
-load_dotenv()
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-REPO_NAME = os.getenv("REPO_NAME")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+# 環境変数からトークン取得
+DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+REPO_NAME = "calmkamille/diary"  # ここは自分のリポジトリに書き換え
 
-# --- GitHub 初期化 ---
+# GitHubに接続
 g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
-# --- Discord Bot 初期化 ---
+# Discordクライアント
 intents = discord.Intents.default()
-intents.messages = True
-intents.message_content = True
+intents.message_content = True  # メッセージ内容を取得可能にする
 client = discord.Client(intents=intents)
 
-# --- 起動時ログ ---
+def post_diary(content: str):
+    """GitHub に日記を作成または更新する関数"""
+    day = datetime.datetime.now().strftime("%Y-%m-%d")
+    path = f"diary/{day}.txt"
+
+    try:
+        # ファイルが存在するか確認
+        existing_file = repo.get_contents(path)
+        # 存在する場合は更新
+        repo.update_file(
+            path=path,
+            message=f"Update diary {day}",
+            content=content,
+            sha=existing_file.sha
+        )
+        print(f"✅ Updated diary: {path}")
+
+    except Exception as e:
+        # 存在しない場合は新規作成
+        repo.create_file(
+            path=path,
+            message=f"Add diary {day}",
+            content=content
+        )
+        print(f"✅ Created new diary: {path}")
+
 @client.event
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
 
-# --- メッセージ受信時処理 ---
 @client.event
 async def on_message(message):
-    # 自分のメッセージや他チャンネルは無視
-    if message.author == client.user or message.channel.id != CHANNEL_ID:
+    # Bot 自身のメッセージは無視
+    if message.author == client.user:
         return
 
-    content = message.content.strip()
-    if not content:
-        return
-
-    # 日付からファイル名作成
-    now = datetime.datetime.now()
-    year = now.year
-    month = f"{now.month:02d}"
-    day = now.strftime("%Y-%m-%d")
-    path = f"diary/{year}/{month}/{day}.md"
-
-    # 既存ファイルを取得して追記、無ければ新規作成
+    # 受信したメッセージを GitHub に保存
     try:
-        existing = repo.get_contents(path)
-        new_content = existing.decoded_content.decode("utf-8") + f"\n\n{content}"
-        repo.update_file(path, f"Update diary {day}", new_content, existing.sha)
-        print(f"📝 Updated existing diary: {path}")
-    except:
-        repo.create_file(path, f"Add diary {day}", content)
-        print(f"🆕 Created new diary: {path}")
+        post_diary(message.content)
+        await message.channel.send("日記を GitHub に保存しました！")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        await message.channel.send("日記の保存に失敗しました。")
 
-# --- Bot起動 ---
+# Bot 起動
 client.run(DISCORD_TOKEN)
