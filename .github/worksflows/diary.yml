@@ -1,1 +1,38 @@
+name: Diary Auto Update
 
+on:
+  push:
+    paths:
+      - "diary/**/*.md"
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install curl and jq
+        run: sudo apt-get install -y curl jq
+
+      - name: Analyze diary sentiment
+        run: |
+          for file in $(git diff --name-only HEAD~1 HEAD | grep '.md$'); do
+            echo "Analyzing $file"
+            content=$(cat "$file" | tr '\n' ' ')
+            response=$(curl -s "https://api.apilayer.com/sentiment/analysis" \
+              -H "apikey: ${{ secrets.APILAYER_API_KEY }}" \
+              -H "Content-Type: text/plain" \
+              -d "$content")
+            sentiment=$(echo $response | jq -r '.result')
+            score=$(echo $response | jq -r '.probability')
+            echo "\n\n---\n**AI分析結果**: $sentiment (信頼度: $score)" >> "$file"
+          done
+
+      - name: Commit and push results
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Add AI sentiment analysis" || echo "No changes to commit"
+          git push
