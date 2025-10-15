@@ -1,0 +1,67 @@
+name: Generate Monthly Diary README
+
+on:
+  push:
+    paths:
+      - "diary/**/*.md"
+    branches:
+      - main
+
+jobs:
+  generate_monthly_readme:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate monthly README
+        run: |
+          import os, glob, re
+          from datetime import datetime
+
+          diary_dir = "diary"
+          for year_dir in glob.glob(f"{diary_dir}/*/"):
+              for month_dir in glob.glob(f"{year_dir}*/"):
+                  files = sorted(glob.glob(f"{month_dir}*.md"))
+                  entries = []
+                  for f in files:
+                      if f.endswith("README.md"): continue
+                      with open(f, encoding="utf-8") as fp:
+                          content = fp.read()
+                      date_match = re.search(r"(\d{4}-\d{2}-\d{2})", f)
+                      date = date_match.group(1) if date_match else f
+                      # 1行目をタイトル扱い
+                      first_line = content.strip().split("\n")[0]
+                      entries.append((date, first_line))
+
+                  if not entries:
+                      continue
+
+                  # READMEを生成
+                  readme_path = os.path.join(month_dir, "README.md")
+                  with open(readme_path, "w", encoding="utf-8") as f:
+                      year = os.path.basename(os.path.dirname(month_dir.rstrip('/')))
+                      month = os.path.basename(month_dir.rstrip('/'))
+                      f.write(f"# 📅 {year}年{month}月の日記まとめ\n\n")
+                      f.write(f"更新日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                      f.write("## 目次\n\n")
+                      for date, title in entries:
+                          filename = os.path.basename(f"{date}.md")
+                          f.write(f"- [{date} - {title}]({filename})\n")
+
+                      f.write("\n---\n")
+                      f.write(f"合計 {len(entries)} 件の日記が記録されています。\n")
+
+      - name: Commit and push README
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add diary/
+          git commit -m "Update monthly README automatically" || echo "No changes to commit"
+          git push
